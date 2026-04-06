@@ -1,65 +1,135 @@
-import Image from "next/image";
+"use client";
+import { useState } from "react";
+
+type UploadData = {
+  chunks: unknown[];
+  embeddings: unknown[];
+};
+
+type Source = {
+  text: string;
+};
 
 export default function Home() {
+  const [file, setFile] = useState<File | null>(null);
+  const [data, setData] = useState<UploadData | null>(null);
+  const [question, setQuestion] = useState("");
+  const [answer, setAnswer] = useState("");
+  const [sources, setSources] = useState<Source[]>([]);
+
+  // upload handler
+  const handleUpload = async () => {
+    if (!file) {
+      alert("Please choose a PDF first.");
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+   const res = await fetch("/api/upload", {
+  method: "POST",
+  body: formData,
+});
+
+const result = await res.json().catch(() => null);
+
+if (!res.ok || !result?.chunks) {
+  alert(result?.error || "Upload failed");
+  return;
+}
+
+setData(result);
+  };
+
+  // query handler
+  const handleAsk = async () => {
+    if (!data) {
+      alert("Upload a PDF before asking a question.");
+      return;
+    }
+const res = await fetch("/api/query", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    question,
+    chunks: data.chunks,
+    embeddings: data.embeddings,
+  }),
+});
+
+const result = await res.json().catch(() => null);
+
+if (!res.ok || !result) {
+  alert("Query failed");
+  return;
+}
+
+setAnswer(result.answer);
+setSources(result.sources ?? []);
+  };
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
+    <div className="p-6 max-w-3xl mx-auto">
+      <div className="mb-4 text-blue-900 text-lg font-semibold">
+        Upload a PDF, then ask questions about its content!
+      </div >
+      <div className="items-center justify-center mt-40">
+      <h1 className="text-2xl font-bold mb-4">
+        RAG PDF Q&A
+      </h1>
+
+      {/* Upload */}
+      <input
+        type="file"
+        accept="application/pdf"
+        onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+        className="mb-2"
+      />
+      <button
+        onClick={handleUpload}
+        className="bg-blue-500 text-white px-4 py-2 rounded"
+      >
+        Upload PDF
+      </button>
+
+      {/* Question */}
+      <div className="mt-6">
+        <input
+          type="text"
+          placeholder="Ask a question..."
+          value={question}
+          onChange={(e) => setQuestion(e.target.value)}
+          className="w-full border p-2"
         />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+        <button
+          onClick={handleAsk}
+          className="mt-2 bg-green-500 text-white px-4 py-2 rounded"
+        >
+          Ask
+        </button>
+      </div>
+
+      {/* Answer */}
+      {answer && (
+        <div className="mt-6">
+          <h2 className="font-semibold">Answer:</h2>
+          <p>{answer}</p>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+      )}
+
+      {/* Sources */}
+      {sources.length > 0 && (
+        <div className="mt-4">
+          <h2 className="font-semibold">Sources:</h2>
+          {sources.map((s, i) => (
+            <div key={i} className="border p-2 mt-2 text-sm">
+              {s.text}
+            </div>
+          ))}
         </div>
-      </main>
+      )}
+     </div>
     </div>
   );
 }
