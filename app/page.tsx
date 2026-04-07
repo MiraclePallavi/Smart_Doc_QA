@@ -1,83 +1,89 @@
 "use client";
 import { useState } from "react";
 
-type UploadData = {
-  chunks: unknown[];
-  embeddings: unknown[];
-};
-
 type Source = {
   text: string;
 };
 
 export default function Home() {
   const [file, setFile] = useState<File | null>(null);
-  const [data, setData] = useState<UploadData | null>(null);
+  const [docId, setDocId] = useState<string | null>(null);
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState("");
   const [sources, setSources] = useState<Source[]>([]);
+  const [loading, setLoading] = useState(false);
 
-  // upload handler
+  // 🔹 Upload handler
   const handleUpload = async () => {
     if (!file) {
       alert("Please choose a PDF first.");
       return;
     }
 
+    setLoading(true);
+
     const formData = new FormData();
     formData.append("file", file);
 
-   const res = await fetch("/api/upload", {
-  method: "POST",
-  body: formData,
-});
+    const res = await fetch("/api/upload", {
+      method: "POST",
+      body: formData,
+    });
 
-const result = await res.json().catch(() => null);
+    const result = await res.json().catch(() => null);
 
-if (!res.ok || !result?.chunks) {
-  alert(result?.error || "Upload failed");
-  return;
-}
+    setLoading(false);
 
-setData(result);
-  };
-
-  // query handler
-  const handleAsk = async () => {
-    if (!data) {
-      alert("Upload a PDF before asking a question.");
+    if (!res.ok || !result?.docId) {
+      alert(result?.error || "Upload failed");
       return;
     }
-const res = await fetch("/api/query", {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({
-    question,
-    chunks: data.chunks,
-    embeddings: data.embeddings,
-  }),
-});
 
-const result = await res.json().catch(() => null);
+    setDocId(result.docId);
+    alert("✅ PDF uploaded successfully!");
+  };
 
-if (!res.ok || !result) {
-  alert("Query failed");
-  return;
-}
+  // 🔹 Query handler
+  const handleAsk = async () => {
+    if (!docId) {
+      alert("Upload a PDF first.");
+      return;
+    }
 
-setAnswer(result.answer);
-setSources(result.sources ?? []);
+    if (!question.trim()) {
+      alert("Enter a question.");
+      return;
+    }
+
+    setLoading(true);
+
+    const res = await fetch("/api/query", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        docId,
+        question,
+      }),
+    });
+
+    const result = await res.json().catch(() => null);
+
+    setLoading(false);
+
+    if (!res.ok || !result) {
+      alert("Query failed");
+      return;
+    }
+
+    setAnswer(result.answer);
+    setSources(result.sources ?? []);
   };
 
   return (
     <div className="p-6 max-w-3xl mx-auto">
-      <div className="mb-4 text-blue-900 text-lg font-semibold">
-        Upload a PDF, then ask questions about its content!
-      </div >
-      <div className="items-center justify-center mt-40">
-      <h1 className="text-2xl font-bold mb-4">
-        RAG PDF Q&A
-      </h1>
+      <h1 className="text-2xl font-bold mb-4">RAG PDF Q&A</h1>
 
       {/* Upload */}
       <input
@@ -86,6 +92,7 @@ setSources(result.sources ?? []);
         onChange={(e) => setFile(e.target.files?.[0] ?? null)}
         className="mb-2"
       />
+
       <button
         onClick={handleUpload}
         className="bg-blue-500 text-white px-4 py-2 rounded"
@@ -102,6 +109,7 @@ setSources(result.sources ?? []);
           onChange={(e) => setQuestion(e.target.value)}
           className="w-full border p-2"
         />
+
         <button
           onClick={handleAsk}
           className="mt-2 bg-green-500 text-white px-4 py-2 rounded"
@@ -109,6 +117,9 @@ setSources(result.sources ?? []);
           Ask
         </button>
       </div>
+
+      {/* Loading */}
+      {loading && <p className="mt-4 text-gray-500">Processing...</p>}
 
       {/* Answer */}
       {answer && (
@@ -129,7 +140,6 @@ setSources(result.sources ?? []);
           ))}
         </div>
       )}
-     </div>
     </div>
   );
 }

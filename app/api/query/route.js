@@ -1,6 +1,7 @@
 import { execFile } from "child_process";
 import fs from "fs/promises";
 import path from "path";
+import os from "os";
 import { promisify } from "util";
 
 const execFileAsync = promisify(execFile);
@@ -8,9 +9,7 @@ const ROOT = process.cwd();
 const PYTHON = "python";
 
 function cosineSimilarity(a, b) {
-  let dot = 0;
-  let normA = 0;
-  let normB = 0;
+  let dot = 0, normA = 0, normB = 0;
 
   for (let i = 0; i < a.length; i++) {
     dot += a[i] * b[i];
@@ -23,50 +22,53 @@ function cosineSimilarity(a, b) {
 
 export async function POST(req) {
   try {
-    const { question, chunks, embeddings } = await req.json();
+    const { docId, question } = await req.json();
 
-    if (!question || !Array.isArray(chunks) || !Array.isArray(embeddings)) {
-      return Response.json({ error: "Missing question/chunks/embeddings" }, { status: 400 });
+    if (!docId || !question) {
+      return Response.json({ error: "Missing input" }, { status: 400 });
     }
 
-    const tmpDir = path.join(ROOT, "uploads");
-    await fs.mkdir(tmpDir, { recursive: true });
+    // 📁 locate stored files
+    const docDir = path.join(os.tmpdir(), "smart-doc-qa", docId);
+    const chunksPath = path.join(docDir, "chunks.json");
+    const embeddingsPath = path.join(docDir, "embeddings.json");
 
-    const qId = Date.now().toString();
-    const questionInputPath = path.join(tmpDir, `${qId}.question.json`);
-    const questionEmbeddingPath = path.join(tmpDir, `${qId}.question.embedding.json`);
+    // 📥 read files
+    const [chunksRaw, embeddingsRaw] = await Promise.all([
+      fs.readFile(chunksPath, "utf-8"),
+      fs.readFile(embeddingsPath, "utf-8"),
+    ]);
 
-    await fs.writeFile(questionInputPath, JSON.stringify([question]));
+    const chunks = JSON.parse(chunksRaw);
+    const embeddings = JSON.parse(embeddingsRaw);
 
-    const embedScript = path.join(ROOT, "python", "embed.py");
-    await execFileAsync(PYTHON, [embedScript, questionInputPath, questionEmbeddingPath], {
-      maxBuffer: 10 * 1024 * 1024,
-    });
+    // 🤖 get query embedding
+    const embedScript = path.join(ROOT, "python", "embed_one.py");
 
-    const questionEmbeddings = JSON.parse(await fs.readFile(questionEmbeddingPath, "utf-8"));
-    const queryEmbedding = questionEmbeddings[0];
+    const { stdout } = await execFileAsync(PYTHON, [
+      embedScript,
+      question,
+    ]);
 
-    const scored = embeddings.map((emb, i) => ({
+    const queryEmbedding = JSON.parse(stdout);
+
+    // 🔍 similarity search
+    const scores = embeddings.map((emb, i) => ({
       score: cosineSimilarity(queryEmbedding, emb),
       text: chunks[i],
     }));
 
-    scored.sort((a, b) => b.score - a.score);
-    const topChunks = scored.slice(0, 3);
+    scores.sort((a, b) => b.score - a.score);
 
-    const answer = topChunks.length
-      ? topChunks[0].text
-      : "No relevant information found in the uploaded PDF.";
+    const topChunks = scores.slice(0, 3);
 
     return Response.json({
-      answer,
+      answer: topChunks.map((c) => c.text).join("\n\n"),
       sources: topChunks,
     });
-  } catch (error) {
-    console.error("QUERY ERROR:", error);
-    return Response.json(
-      { error: error?.message || "Query failed" },
-      { status: 500 }
-    );
+
+  } catch (err) {
+    console.error("QUERY ERROR:", err);
+    return Response.json({ error: "Query failed" }, { status: 500 });
   }
 }

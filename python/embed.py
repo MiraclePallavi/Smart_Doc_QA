@@ -4,21 +4,27 @@ from sentence_transformers import SentenceTransformer
 
 def main():
     if len(sys.argv) < 3:
-        raise SystemExit("Usage: embed.py <input_json_path> <output_json_path>")
+        print("Usage: embed.py <chunks_input_path> <embeddings_output_path>")
+        sys.exit(1)
 
-    input_path = sys.argv[1]
-    output_path = sys.argv[2]
+    chunks_path = sys.argv[1]
+    embeddings_path = sys.argv[2]
 
-    with open(input_path, "r", encoding="utf-8") as f:
-        data = json.load(f)
+    # read chunks
+    with open(chunks_path, "r", encoding="utf-8") as f:
+        chunks = json.load(f)
 
-    if isinstance(data, str):
-        data = [data]
+    if isinstance(chunks, str):
+        chunks = [chunks]
 
+    # load model
     model = SentenceTransformer("all-MiniLM-L6-v2")
-    embeddings = model.encode(data, normalize_embeddings=True).tolist()
 
-    with open(output_path, "w", encoding="utf-8") as f:
+    # generate embeddings
+    embeddings = model.encode(chunks, normalize_embeddings=True).tolist()
+
+    # save embeddings
+    with open(embeddings_path, "w", encoding="utf-8") as f:
         json.dump(embeddings, f)
 
 if __name__ == "__main__":
