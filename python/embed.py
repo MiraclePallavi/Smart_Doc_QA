@@ -21,11 +21,19 @@ def main():
     model = SentenceTransformer("all-MiniLM-L6-v2")
 
     # generate embeddings
-    embeddings = model.encode(chunks, normalize_embeddings=True).tolist()
+    if isinstance(chunks, dict):
+        embedding_data = {}
+        for key, chunk_list in chunks.items():
+            if chunk_list:
+                embedding_data[key] = model.encode(chunk_list, normalize_embeddings=True).tolist()
+            else:
+                embedding_data[key] = []
+    else:
+        embedding_data = model.encode(chunks, normalize_embeddings=True).tolist()
 
     # save embeddings
     with open(embeddings_path, "w", encoding="utf-8") as f:
-        json.dump(embeddings, f)
+        json.dump(embedding_data, f)
 
 if __name__ == "__main__":
     main()

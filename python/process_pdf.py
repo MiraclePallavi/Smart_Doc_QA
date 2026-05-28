@@ -17,22 +17,22 @@ def main():
 
     text = " ".join(text_parts)
 
-    chunks = []
-    chunk_size = 800
-    overlap = 100
-
-    start = 0
-    while start < len(text):
-        chunk = text[start:start + chunk_size].strip()
-        if chunk:
-            chunks.append(chunk)
-        start += chunk_size - overlap
-
-    if not chunks:
-        chunks = ["No readable text found in PDF"]
+    def chunk_by_word(word, chunk_size, overlap):
+        chunks = []
+        for i in range(0, len(word), chunk_size - overlap):
+            chunk = " ".join(word[i:i + chunk_size]).strip()
+            if chunk:
+                chunks.append(chunk)
+        return chunks
+    
+    words = text.split()
+    test_chunks ={
+        "QA": chunk_by_word(words, 150, 30),
+        "Summary": chunk_by_word(words, 500, 100)
+    }
 
     with open(chunks_output_path, "w", encoding="utf-8") as f:
-        json.dump(chunks, f, ensure_ascii=False)
+        json.dump(test_chunks, f, ensure_ascii=False)
 
 if __name__ == "__main__":
     main()

@@ -62,10 +62,10 @@ export async function POST(request) {
     }
 
     const chunks = JSON.parse(await fs.readFile(chunksPath, "utf-8"));
-
+    const chunklength = Array.isArray(chunks) ? chunks.length : Object.values(chunks).reduce((sum, arr) => sum + arr.length, 0);
     return Response.json({
       docId,
-      chunksCount: chunks.length,
+      chunksCount: chunklength,
     });
 
   } catch (error) {
