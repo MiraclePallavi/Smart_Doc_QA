@@ -33,17 +33,14 @@ export async function POST(request) {
     const processPdfScript = path.join(ROOT, "python", "process_pdf.py");
     const embedScript = path.join(ROOT, "python", "embed.py");
 
-    // Step 1: Extract chunks
     await execFileAsync(PYTHON, [processPdfScript, pdfPath, chunksPath], {
       maxBuffer: 10 * 1024 * 1024,
     });
 
-    // Step 2: Generate embeddings
     await execFileAsync(PYTHON, [embedScript, chunksPath, embeddingsPath], {
       maxBuffer: 10 * 1024 * 1024,
     });
 
-    // ✅ Verify files exist
     const chunksExists = await fs
       .access(chunksPath)
       .then(() => true)
