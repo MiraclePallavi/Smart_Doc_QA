@@ -41,40 +41,81 @@ export async function POST(req) {
     const allChunks = JSON.parse(chunksRaw);
     const allEmbeddings = JSON.parse(embeddingsRaw);
 
+    // 🧠 Step 1: Classify routing intent via Gemini
     const intentResponse = await ai.models.generateContent({
       model: "gemini-2.5-flash",
       contents: `Classify if this query requires a granular, specific fact lookup ("QA") or a broad, high-level structural overview ("SUMMARY"). Reply with ONLY the word "QA" or "SUMMARY". Query: ${question}`,
     });
 
     let targetTask = intentResponse.text.trim().toUpperCase().replace(/[^A-Z]/g, "");
-    
     if (targetTask !== "QA" && targetTask !== "SUMMARY") {
       targetTask = "QA"; 
     }
 
-    const chunks = allChunks[targetTask];
-    const embeddings = allEmbeddings[targetTask];
+  // 🔍 Case-Insensitive Key Lookup: Find the key regardless of its capitalization layout
+    const matchedChunksKey = Object.keys(allChunks).find(
+      (k) => k.toLowerCase() === targetTask.toLowerCase()
+    );
+    const matchedEmbeddingsKey = Object.keys(allEmbeddings).find(
+      (k) => k.toLowerCase() === targetTask.toLowerCase()
+    );
 
-    if (!chunks || !embeddings) {
-      return Response.json({ error: `Requested task data for '${targetTask}' was not found.` }, { status: 500 });
+    let chunks = allChunks[matchedChunksKey];
+    let embeddings = allEmbeddings[matchedEmbeddingsKey];
+
+    // 🔄 Backwards-Compatibility Adapter: Handle old flat array schemas
+    if (!chunks && Array.isArray(allChunks)) {
+      console.log("⚠️ Legacy flat-array schema detected. Falling back to entire dataset.");
+      chunks = allChunks;
+      embeddings = allEmbeddings;
     }
 
+    // If it's still missing after the case-insensitive search, reject safely
+    if (!chunks || !embeddings) {
+      return Response.json({ 
+        error: `Database structure mismatch. Target pool '${targetTask}' could not be resolved.`,
+        allChunksKeys: Array.isArray(allChunks) ? "Flat Array" : Object.keys(allChunks)
+      }, { status: 500 });
+    }
+
+    // If it's still missing after the fallback check, reject it safely
+    if (!chunks || !embeddings) {
+      return Response.json({ 
+        error: `Database structure mismatch. Target pool '${targetTask}' could not be resolved.`,
+        allChunksKeys: Array.isArray(allChunks) ? "Flat Array" : Object.keys(allChunks)
+      }, { status: 500 });
+    }
+
+    // 🤖 Step 2: Generate Vector Embedding for Question
     const embedScript = path.join(ROOT, "python", "embed_one.py");
     const { stdout } = await execFileAsync(PYTHON, [embedScript, question]);
-    const queryEmbedding = JSON.parse(stdout);
+    
+    // 🛡️ Safe Parse: Isolate the pure JSON array bracket, stripping away random terminal warnings
+    const jsonStartIndex = stdout.indexOf("[");
+    if (jsonStartIndex === -1) {
+      throw new Error(`Python script failed to return a valid JSON vector array. Raw output: ${stdout}`);
+    }
+    const cleanStdout = stdout.slice(jsonStartIndex).trim();
+    const queryEmbedding = JSON.parse(cleanStdout);
 
+    // 🔍 Step 3: Run Similarity Indexing Logic
     const scores = embeddings.map((emb, i) => ({
       score: cosineSimilarity(queryEmbedding, emb),
-      text: chunks[i],
+      text: chunks[i] || "",
     }));
 
     scores.sort((a, b) => b.score - a.score);
 
     const topChunks = scores.slice(0, 3).filter(s => s.score > 0.25);
-    if (topChunks.length === 0) topChunks.push(scores[0]); 
+    if (topChunks.length === 0 && scores.length > 0) {
+      topChunks.push(scores[0]); 
+    }
 
-    const contextText = topChunks.map((c) => c.text).join("\n\n");
+    const contextText = topChunks.length > 0 
+      ? topChunks.map((c) => c.text).join("\n\n")
+      : "No relevant matching context could be derived from document vectors.";
 
+    // 🧠 Step 4: Context Injection & Generation
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash",
       contents: `You are an expert document assistant. Answer the user's question accurately using ONLY the provided text context below. If the answer cannot be found in the context, politely state that you do not know.
@@ -91,7 +132,14 @@ Question: ${question}`,
     });
 
   } catch (err) {
-    console.error("QUERY ERROR:", err);
-    return Response.json({ error: "Query failed" }, { status: 500 });
+    console.error("🔴 CRITICAL QUERY FAILURE:", err);
+    
+    // 🛡️ Expose the explicit root failure details to the network console to kill guess-work
+    return Response.json({ 
+      error: "Query processing encountered a fatal error.",
+      message: err?.message || String(err),
+      stdout: err?.stdout || null,
+      stderr: err?.stderr || null
+    }, { status: 500 });
   }
 }

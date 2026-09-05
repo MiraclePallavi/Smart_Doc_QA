@@ -2,75 +2,69 @@ import { execFile } from "child_process";
 import fs from "fs/promises";
 import path from "path";
 import os from "os";
+import crypto from "crypto"; 
 import { promisify } from "util";
 
 const execFileAsync = promisify(execFile);
 const ROOT = process.cwd();
 const PYTHON = "python";
 
-export async function POST(request) {
+export async function POST(req) {
   try {
-    const formData = await request.formData();
+    const formData = await req.formData();
     const file = formData.get("file");
 
-    if (!file || typeof file.arrayBuffer !== "function") {
-      return Response.json({ error: "No PDF uploaded" }, { status: 400 });
+    if (!file) {
+      return Response.json({ error: "No file uploaded" }, { status: 400 });
     }
 
-    const baseDir = path.join(os.tmpdir(), "smart-doc-qa");
-    await fs.mkdir(baseDir, { recursive: true });
+    // 1. Read the file buffer into memory
+    const bytes = await file.arrayBuffer();
+    const buffer = Buffer.from(bytes);
 
-    const docId = Date.now().toString();
-    const docDir = path.join(baseDir, docId);
-    await fs.mkdir(docDir, { recursive: true });
+    // 2. Generate a unique SHA-256 hash based on the file content
+    const fileHash = crypto.createHash("sha256").update(buffer).digest("hex");
+    const docId = `doc_${fileHash.substring(0, 16)}`; 
 
-    const pdfPath = path.join(docDir, "input.pdf");
+    // 3. Define target directory path
+    const docDir = path.join(os.tmpdir(), "smart-doc-qa", docId);
     const chunksPath = path.join(docDir, "chunks.json");
     const embeddingsPath = path.join(docDir, "embeddings.json");
 
-    await fs.writeFile(pdfPath, Buffer.from(await file.arrayBuffer()));
-
-    const processPdfScript = path.join(ROOT, "python", "process_pdf.py");
-    const embedScript = path.join(ROOT, "python", "embed.py");
-
-    await execFileAsync(PYTHON, [processPdfScript, pdfPath, chunksPath], {
-      maxBuffer: 10 * 1024 * 1024,
-    });
-
-    await execFileAsync(PYTHON, [embedScript, chunksPath, embeddingsPath], {
-      maxBuffer: 10 * 1024 * 1024,
-    });
-
-    const chunksExists = await fs
-      .access(chunksPath)
-      .then(() => true)
-      .catch(() => false);
-
-    const embeddingsExists = await fs
-      .access(embeddingsPath)
-      .then(() => true)
-      .catch(() => false);
-
-    if (!chunksExists || !embeddingsExists) {
-      return Response.json(
-        { error: "Processing failed: embeddings not created" },
-        { status: 500 }
-      );
+    try {
+      await fs.access(chunksPath);
+      await fs.access(embeddingsPath);
+      
+      console.log(`♻️ Document ${docId} already exists. Reusing files to save space.`);
+      return Response.json({ 
+        status: "success", 
+        docId, 
+        message: "Existing document loaded instantly." 
+      });
+    } catch {
+      console.log(`🆕 New document detected. Processing ${docId}...`);
     }
 
-    const chunks = JSON.parse(await fs.readFile(chunksPath, "utf-8"));
-    const chunklength = Array.isArray(chunks) ? chunks.length : Object.values(chunks).reduce((sum, arr) => sum + arr.length, 0);
-    return Response.json({
-      docId,
-      chunksCount: chunklength,
+    // 4. Create directory if it doesn't exist
+    await fs.mkdir(docDir, { recursive: true });
+
+    const pdfPath = path.join(docDir, file.name);
+    await fs.writeFile(pdfPath, buffer);
+
+    const parseScript = path.join(ROOT, "python", "process_pdf.py");
+    await execFileAsync(PYTHON, [parseScript, pdfPath, chunksPath]);
+
+    const embedScript = path.join(ROOT, "python", "embed.py");
+    await execFileAsync(PYTHON, [embedScript, chunksPath, embeddingsPath]);
+
+    return Response.json({ 
+      status: "success", 
+      docId, 
+      message: "Document processed and indexed successfully." 
     });
 
-  } catch (error) {
-    console.error("UPLOAD ERROR:", error);
-
-    return Response.json(
-      { error: error?.message || "Upload failed" },
-      { status: 500 }
-    );
+  } catch (err) {
+    console.error("UPLOAD ERROR:", err);
+    return Response.json({ error: "Upload processing failed" }, { status: 500 });
   }
 }
