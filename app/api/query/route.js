@@ -115,7 +115,6 @@ export async function POST(req) {
       ? topChunks.map((c) => c.text).join("\n\n")
       : "No relevant matching context could be derived from document vectors.";
 
-    // 🧠 Step 4: Context Injection & Generation
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash",
       contents: `You are an expert document assistant. Answer the user's question accurately using ONLY the provided text context below. If the answer cannot be found in the context, politely state that you do not know.
@@ -132,14 +131,12 @@ Question: ${question}`,
     });
 
   } catch (err) {
-    console.error("🔴 CRITICAL QUERY FAILURE:", err);
+   const refId = crypto.randomUUID();
+    console.error(`🔴 QUERY FAILURE [ref: ${refId}]`, err);
     
-    // 🛡️ Expose the explicit root failure details to the network console to kill guess-work
     return Response.json({ 
       error: "Query processing encountered a fatal error.",
-      message: err?.message || String(err),
-      stdout: err?.stdout || null,
-      stderr: err?.stderr || null
-    }, { status: 500 });
-  }
+      refId
+  }, { status: 500 });
+}
 }
