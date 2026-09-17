@@ -9,7 +9,7 @@ type Source = {
 
 export default function Home() {
   const [file, setFile] = useState<File | null>(null);
-  const [docId, setDocId] = useState<string | null>(null);
+  const [docId, setDocId] = useState<number | null>(null);
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState("");
   const [sources, setSources] = useState<Source[]>([]);
@@ -35,12 +35,12 @@ export default function Home() {
 
     setLoading(false);
 
-    if (!res.ok || !result?.docId) {
+    if (!res.ok || !result?.documentId) {
       alert(result?.error || "Upload failed");
       return;
     }
-
-    setDocId(result.docId);
+    setDocId(result.documentId);
+    
     alert("✅ PDF uploaded successfully!");
   };
 
@@ -63,7 +63,7 @@ export default function Home() {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        docId,
+        documentId: docId,
         question,
       }),
     });
